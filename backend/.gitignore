@@ -1,0 +1,71 @@
+# ---------------------------------------------------------------------------
+# Environment
+# ---------------------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ---------------------------------------------------------------------------
+# Virtual environments
+# ---------------------------------------------------------------------------
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# ---------------------------------------------------------------------------
+# Testing / linting / type-checking caches
+# ---------------------------------------------------------------------------
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# ---------------------------------------------------------------------------
+# Runtime data — NEVER commit
+# ---------------------------------------------------------------------------
+# SQLite database, Chroma vector store, uploaded documents, chat images.
+# All created at runtime by storage.py and rag_engine.py.
+app/data/
+uploads/
+chroma_data/
+argus.db
+app_seed.db
+index_meta.pkl
+
+# ---------------------------------------------------------------------------
+# Defensive — nothing in the backend should be npm
+# ---------------------------------------------------------------------------
+node_modules/
+package.json
+package-lock.json
