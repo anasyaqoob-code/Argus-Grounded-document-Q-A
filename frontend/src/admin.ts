@@ -5,11 +5,17 @@
  * (credentials: "include") because the backend gates these routes
  * behind require_admin — an unauthenticated call returns 403.
  *
+ * The base URL is read from VITE_API_BASE at build time so production
+ * requests go to the backend host, not the frontend host. In local dev
+ * the var is typically unset, so the fallback to "" keeps the request
+ * relative — which the Vite dev proxy forwards to the local backend.
+ *
  * Exports the four fetch helpers and the four response types used by
  * AdminPage.tsx.
  */
 
-const API_BASE = "/api/v1/admin/stats";
+const VITE_API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "";
+const API_BASE = `${VITE_API_BASE}/api/v1/admin/stats`;
 
 // ---------------------------------------------------------------------------
 // Types — shapes returned by the backend's admin endpoints.
