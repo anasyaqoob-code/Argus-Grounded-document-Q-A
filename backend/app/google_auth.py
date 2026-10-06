@@ -46,8 +46,8 @@ def _set_session_cookie(response: Response, user_id: str) -> None:
         key=auth.COOKIE_NAME,
         value=auth.create_jwt(user_id),
         httponly=True,
-        samesite="lax",
-        secure=False,  # flip to True on HTTPS deployments
+        samesite="none",
+        secure=(os.getenv("ENV") or "").strip().lower() == "production",  # flip to True on HTTPS deployments
         max_age=auth.JWT_EXPIRE_DAYS * 24 * 3600,
         path="/",
     )
