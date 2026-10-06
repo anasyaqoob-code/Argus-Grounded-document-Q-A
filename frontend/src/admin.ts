@@ -7,14 +7,16 @@
  *
  * The base URL is read from VITE_API_BASE at build time so production
  * requests go to the backend host, not the frontend host. In local dev
- * the var is typically unset, so the fallback to "" keeps the request
- * relative — which the Vite dev proxy forwards to the local backend.
+ * the var is typically unset, so the fallback keeps the request relative
+ * — which the Vite dev proxy forwards to the local backend.
  *
  * Exports the four fetch helpers and the four response types used by
  * AdminPage.tsx.
  */
 
-const VITE_API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "";
+const VITE_API_BASE =
+  (import.meta.env.VITE_API_BASE as string | undefined) ??
+  "https://argus-grounded-document-q-a-production.up.railway.app";
 const API_BASE = `${VITE_API_BASE}/api/v1/admin/stats`;
 
 // ---------------------------------------------------------------------------
