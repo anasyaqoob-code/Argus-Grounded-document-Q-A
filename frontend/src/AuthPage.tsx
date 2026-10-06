@@ -24,6 +24,8 @@ import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import { ArgusLogo } from "./ArgusLogo";
 
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "";
+
 type Mode = "login" | "register";
 
 // ---------------------------------------------------------------------------
@@ -281,7 +283,7 @@ export function AuthPage() {
             <span>or</span>
           </div>
 
-          <a href="/api/v1/auth/google/start" className="auth-google-btn">
+          <a href={`${API_BASE}/api/v1/auth/google/start`} className="auth-google-btn">
             <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
               <path fill="#4285F4" d="M17.64 9.2c0-.63-.06-1.25-.16-1.84H9v3.49h4.84a4.14 4.14 0 0 1-1.8 2.71v2.26h2.91c1.7-1.57 2.69-3.88 2.69-6.62z"/>
               <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.91-2.26c-.81.54-1.85.86-3.05.86-2.34 0-4.32-1.58-5.03-3.71H.96v2.33A9 9 0 0 0 9 18z"/>
