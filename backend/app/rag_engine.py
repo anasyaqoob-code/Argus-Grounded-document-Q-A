@@ -517,12 +517,14 @@ class AgenticRAGService:
             temperature=self.settings.temperature,
             max_retries=2,
             timeout=GROQ_TIMEOUT_SECONDS,
+            tool_choice="none",
         )
         self._llm_cache[MODEL_SMALL] = ChatGroq(
             model=MODEL_SMALL,
             temperature=self.settings.temperature,
             max_retries=2,
             timeout=GROQ_TIMEOUT_SECONDS,
+            tool_choice="none",
         )
 
         self.retriever: Optional[Retriever] = None
@@ -759,6 +761,7 @@ class AgenticRAGService:
                 temperature=self.settings.temperature,
                 max_retries=2,
                 timeout=GROQ_TIMEOUT_SECONDS,
+                tool_choice="none",
             )
             self._llm_cache[model] = client
         return client
@@ -1241,6 +1244,7 @@ class AgenticRAGService:
             temperature=self.settings.temperature,
             max_retries=0,
             timeout=OVERVIEW_TIMEOUT_SECONDS,
+            tool_choice="none",
         )
         messages = [SystemMessage(content=system), HumanMessage(content=human)]
         response = llm.invoke(messages)
@@ -1438,6 +1442,7 @@ Return ONLY valid JSON:
                     temperature=self.settings.temperature,
                     max_retries=2,
                     timeout=GROQ_TIMEOUT_SECONDS,
+                    tool_choice="none"
                 )
                 self._llm_cache[model] = llm
         else:
