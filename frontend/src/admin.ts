@@ -14,9 +14,8 @@
  * AdminPage.tsx.
  */
 
-const VITE_API_BASE =
-  (import.meta.env.VITE_API_BASE as string | undefined) ||
-  "https://argus-grounded-document-q-a-production.up.railway.app";
+const VITE_API_BASE = "https://argus-grounded-document-q-a-production.up.railway.app";
+
 const API_BASE = `${VITE_API_BASE}/api/v1/admin/stats`;
 
 // ---------------------------------------------------------------------------
