@@ -25,7 +25,7 @@ import { useAuth } from "./AuthContext";
 import { ArgusLogo } from "./ArgusLogo";
 
 const API_BASE =
-  (import.meta.env.VITE_API_BASE as string | undefined) ??
+  (import.meta.env.VITE_API_BASE as string | undefined) ||
   "https://argus-grounded-document-q-a-production.up.railway.app";
 
 type Mode = "login" | "register";
