@@ -17,7 +17,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { ArgusLogo } from "./ArgusLogo";
 
-const API_BASE = "/api/v1";
+const API_BASE = "https://argus-grounded-document-q-a-production.up.railway.app/api/v1";
 
 export function ForgotPassword() {
   const navigate = useNavigate();
