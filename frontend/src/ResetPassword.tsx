@@ -15,7 +15,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { ArgusLogo } from "./ArgusLogo";
 
-const API_BASE = "/api/v1";
+const API_BASE = "https://argus-grounded-document-q-a-production.up.railway.app/api/v1";
 
 // ---------------------------------------------------------------------------
 // Strength scoring.
