@@ -7,6 +7,10 @@ Reads GMAIL_USER, GMAIL_APP_PASSWORD, RESEND_API_KEY, RESEND_FROM_EMAIL,
 RESEND_FROM_NAME from env. Failures are logged but never raised to the
 caller; a broken email send must not 500 a password-reset request that
 already wrote its token to the database.
+
+Note: Railway blocks outbound SMTP on ports 25, 465, and 587. We use
+port 2525 (Gmail's alternate submission port) instead — Gmail still
+requires STARTTLS on it, which we call explicitly below.
 """
 
 from __future__ import annotations
@@ -87,7 +91,9 @@ def _send_via_gmail(to_email: str, subject: str, html: str) -> bool:
     msg.attach(MIMEText(html, "html"))
 
     try:
-        with smtplib.SMTP("smtp.gmail.com", 587, timeout=20) as server:
+        # Port 2525 is Gmail's alternate submission port.
+        # Railway blocks 25/465/587 outbound.
+        with smtplib.SMTP("smtp.gmail.com", 2525, timeout=20) as server:
             server.starttls()
             server.login(user, password)
             server.send_message(msg)
