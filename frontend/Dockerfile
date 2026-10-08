@@ -3,7 +3,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-RUN npm run build
+ARG CACHEBUST=1
+RUN echo "cachebust=$CACHEBUST" && npm run build
 
 FROM node:20-alpine
 WORKDIR /app
