@@ -58,6 +58,14 @@ class AgentDecision:
     decision_summary: str
     rewritten_question: str
     is_broad_query: bool = False
+    # Chain-of-thought captured from the classifier, before its decisions.
+    # Kept for trace visibility and for debugging misclassifications.
+    reasoning: str = ""
+    # True when the classifier identified the user's message as an attempt
+    # to override instructions, extract the system prompt, or bypass
+    # grounding. ``ask_stream`` short-circuits to an abstain when this is
+    # set, without running retrieval.
+    adversarial: bool = False
 
 
 @dataclass
