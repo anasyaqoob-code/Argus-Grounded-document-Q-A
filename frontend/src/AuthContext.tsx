@@ -15,6 +15,13 @@
  * The ``is_admin`` flag rides along on the user object returned by the
  * backend. Admin-gated UI reads ``isAdmin`` from this context rather
  * than poking at ``user`` directly, so the field stays swappable.
+ *
+ * URL NOTE: this file hardcodes the backend origin rather than importing
+ * it from ``api.ts``. The frontend and backend are on different Railway
+ * hosts; any "empty fallback = same origin" would send auth requests to
+ * the frontend Caddy server, which returns index.html for unknown paths.
+ * The previous bug produced "Unexpected token '<'" errors on register
+ * and login. Hardcoding here means an api.ts regression can't break auth.
  */
 
 import React, {
@@ -25,8 +32,6 @@ import React, {
   useMemo,
   useState,
 } from "react";
-
-import { API } from "./api";
 
 export interface AuthUser {
   user_id: string;
@@ -46,7 +51,13 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const AUTH_BASE = `${API}/auth`;
+/**
+ * Absolute backend URL. Do NOT derive this from import.meta.env or
+ * window.location — either can resolve to the frontend host and produce
+ * "same origin" requests that silently 200 with HTML.
+ */
+const BACKEND_ORIGIN = "https://argus-grounded-document-q-a-production.up.railway.app";
+const AUTH_BASE = `${BACKEND_ORIGIN}/api/v1/auth`;
 
 async function parseError(resp: Response): Promise<string> {
   try {
