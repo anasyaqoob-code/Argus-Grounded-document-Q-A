@@ -6,11 +6,19 @@
  * JWT — nothing client-supplied controls who you are.
  *
  * The Vite dev server proxies /api and /health to localhost:8000 (see
- * vite.config.ts) in development. In production, ``VITE_API_BASE``
- * must be set to the backend's public URL; Vite bakes it into the
- * bundle at build time. If it's missing in production, the fallback
- * is an empty string (same-origin), which fails loudly instead of
- * silently trying to reach the user's own localhost.
+ * vite.config.ts) in development. In production, ``VITE_API_BASE`` must
+ * be set to the backend's public URL; Vite bakes it into the bundle at
+ * build time.
+ *
+ * If VITE_API_BASE is missing in production, we fall back to a hardcoded
+ * production URL. This is deliberate: an empty fallback ("same origin")
+ * used to be the default, but that broke in production because the
+ * frontend and backend live on different hosts. Requests to
+ * ``/api/v1/...`` on the frontend host get served index.html by the
+ * Caddy SPA fallback, so every fetch silently returns HTML instead of
+ * JSON — the exact class of bug we hit with Google OAuth. The hardcoded
+ * fallback eliminates that failure mode. Rebuild the bundle to pick up
+ * a different backend URL.
  */
 
 import type {
@@ -26,15 +34,27 @@ const env = (import.meta as unknown as {
   env?: { VITE_API_BASE?: string; PROD?: boolean };
 }).env;
 
+/** Production backend URL. Used when VITE_API_BASE is unset at build time. */
+const PROD_BACKEND = "https://argus-grounded-document-q-a-production.up.railway.app";
+
 /**
- * In dev, the fallback is localhost:8000 so `npm run dev` works out of
- * the box. In production, an empty fallback means "same origin" — the
- * browser sends requests to whatever domain served the page. That fails
- * loudly if VITE_API_BASE wasn't set on Railway, which is better than
- * silently trying to reach the user's own localhost.
+ * Resolve the base URL of the backend.
+ *
+ * Priority:
+ *   1. VITE_API_BASE, if set at build time (takes precedence — allows
+ *      pointing at a staging backend without a code change).
+ *   2. The hardcoded production backend URL (correct for the deployed
+ *      frontend on Railway).
+ *   3. In development (Vite dev server), http://localhost:8000, so
+ *      `npm run dev` works out of the box without any env vars.
+ *
+ * The ordering matters: the previous version fell back to "" in prod,
+ * which caused every authenticated fetch to silently hit the frontend
+ * host and receive index.html. That's the bug this file now prevents.
  */
 const BASE =
-  env?.VITE_API_BASE ?? (env?.PROD ? "" : "http://localhost:8000");
+  env?.VITE_API_BASE ||
+  (env?.PROD ? PROD_BACKEND : "http://localhost:8000");
 
 const API = `${BASE}/api/v1`;
 
