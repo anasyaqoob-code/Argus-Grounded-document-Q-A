@@ -862,4 +862,16 @@ text
 | **Using it** | Added password reset and Google to step 1. Added the lightbox to step 9. Added the range selector to step 11 |
 | **Testing** | Added the `seed_metrics.py` usage notes |
 
+## Known limitation: Incognito Chrome and authentication
+
+Chrome's [Bounce Tracking Mitigations](https://privacycg.github.io/nav-tracking-mitigations/) clear cookies that are set on cross-site POSTs when the destination domain has no prior **site engagement history**. The Argus frontend and backend are on different Railway subdomains, so login involves a cross-origin POST — exactly the shape Chrome looks for.
+
+**Consequence:** signing in from a fresh **incognito** window (or a brand-new Chrome profile with no browsing history) will appear to succeed but every subsequent request returns 401. The app shows the "Error: Not authenticated" banner.
+
+**In a normal browser window, everything works** — Chrome has already accumulated engagement history for the Railway domains from ordinary browsing, so the mitigation doesn't fire.
+
+**Testing guidance:** use a normal browser window for manual testing, or a dedicated Chrome profile (not incognito) with `chrome://settings/content/all` for clearing state between tests. If you need the app to work reliably from a cold profile, the fix is to serve the frontend and backend from a single origin — see "Consolidation" below.
+
+**Why we haven't consolidated (yet):** the split-origin deploy is simpler to reason about per-service and doesn't require rebuilding the frontend inside the backend's Docker image. The tradeoff is that incognito testing is unreliable. If that becomes a real problem, consolidating into one Railway service eliminates this entire class of bug.
+
 Save it. This now reflects what's actually in the repo.
