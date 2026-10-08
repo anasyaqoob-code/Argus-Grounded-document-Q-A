@@ -6,22 +6,26 @@
  * so if the cookie is valid the backend returns the user and the app
  * renders. If it 401s, the user is logged out and the auth screen shows.
  *
- * ``login`` and ``register`` hit their endpoints, and on success the
- * server sets the cookie and returns the user. We store that in state;
- * subsequent requests carry the cookie without any further work.
+ * login / register / Google all use the same two-step pattern:
  *
- * ``logout`` clears the cookie server-side and resets state.
+ *   1. POST to the endpoint. The backend validates credentials (or the
+ *      Google callback) and returns a one-time ``exchange_token`` — it
+ *      does NOT set the session cookie on this response.
  *
- * The ``is_admin`` flag rides along on the user object returned by the
- * backend. Admin-gated UI reads ``isAdmin`` from this context rather
- * than poking at ``user`` directly, so the field stays swappable.
+ *   2. POST that token to ``/auth/exchange`` via fetch(). The backend
+ *      sets the session cookie on THIS response, and returns the user.
+ *
+ * Why the two-step dance? Chrome's Bounce Tracking Mitigations delete
+ * cookies set on cross-site POSTs that come from a different top-level
+ * origin — which is exactly what our split-origin deploy produces. When
+ * the cookie is set on a fetch() response instead, the mitigation leaves
+ * it alone. See backend/app/google_auth.py for the long-form rationale.
  *
  * URL NOTE: this file hardcodes the backend origin rather than importing
  * it from ``api.ts``. The frontend and backend are on different Railway
  * hosts; any "empty fallback = same origin" would send auth requests to
  * the frontend Caddy server, which returns index.html for unknown paths.
- * The previous bug produced "Unexpected token '<'" errors on register
- * and login. Hardcoding here means an api.ts regression can't break auth.
+ * Hardcoding here means an api.ts regression can't break auth.
  */
 
 import React, {
@@ -69,6 +73,26 @@ async function parseError(resp: Response): Promise<string> {
   return `Request failed (${resp.status})`;
 }
 
+/**
+ * Redeem a one-time exchange token for a session cookie.
+ *
+ * The cookie is set on THIS fetch response, not on the login/register
+ * POST that produced the token. Browsers exempt fetch-initiated
+ * Set-Cookie from bounce-tracking cookie clearing; navigation-initiated
+ * Set-Cookie across origins is not exempt. This is the whole reason the
+ * two-step flow exists.
+ */
+async function exchangeToken(token: string): Promise<AuthUser> {
+  const resp = await fetch(`${AUTH_BASE}/exchange`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+  if (!resp.ok) throw new Error(await parseError(resp));
+  return (await resp.json()) as AuthUser;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -112,8 +136,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ email, password }),
       });
       if (!resp.ok) throw new Error(await parseError(resp));
-      const data = (await resp.json()) as AuthUser;
-      setUser(data);
+      const data = (await resp.json()) as { exchange_token: string };
+      setUser(await exchangeToken(data.exchange_token));
     },
     [],
   );
@@ -127,8 +151,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ email, password }),
       });
       if (!resp.ok) throw new Error(await parseError(resp));
-      const data = (await resp.json()) as AuthUser;
-      setUser(data);
+      const data = (await resp.json()) as { exchange_token: string };
+      setUser(await exchangeToken(data.exchange_token));
     },
     [],
   );

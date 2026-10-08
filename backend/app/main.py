@@ -85,9 +85,6 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 IMAGE_DIR = UPLOAD_DIR / "images"
 IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
-# Ensure the schema exists before the first request. The startup
-# handler also calls this, but doing it here guarantees the users
-# table exists even under --reload restarts.
 try:
     storage.init_db()
 except Exception:
@@ -107,6 +104,10 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class ExchangeRequest(BaseModel):
+    token: str
+
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
@@ -116,14 +117,6 @@ app = FastAPI(
     docs_url="/docs",
 )
 
-# CORS with credentials requires a specific origin list — the wildcard
-# "*" is incompatible with allow_credentials=True and will cause the
-# browser to silently drop the Set-Cookie header.
-#
-# The two localhost origins are always allowed so local development
-# works unchanged. FRONTEND_URL is added at import time if set, so
-# the deployed frontend's origin (e.g. https://argus.up.railway.app)
-# is also accepted without needing to edit this file per environment.
 CORS_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -141,23 +134,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve persisted chat images. Mounted under the API prefix so the
-# relative URLs stored in message metadata stay portable.
 app.mount(
     f"{_settings.api_prefix}/images",
     StaticFiles(directory=str(IMAGE_DIR)),
     name="images",
 )
 
-# Voice input — POST /api/v1/transcribe
 app.include_router(voice_router)
-
-# Password reset — POST /api/v1/auth/forgot-password
-#                  POST /api/v1/auth/reset-password
 app.include_router(password_reset.router, prefix=_settings.api_prefix)
-
-# Google OAuth — GET /api/v1/auth/google/start
-#                GET /api/v1/auth/google/callback
 app.include_router(google_auth.router, prefix=_settings.api_prefix)
 
 
@@ -165,12 +149,6 @@ app.include_router(google_auth.router, prefix=_settings.api_prefix)
 # Dependencies
 # ---------------------------------------------------------------------------
 def current_user(request: Request) -> str:
-    """Return the authenticated user id from the JWT cookie.
-
-    Raises 401 if the cookie is missing, malformed, or expired. The
-    DEFAULT_USER_ID fallback is intentionally gone — every route that
-    depends on this function now requires a valid session.
-    """
     token = request.cookies.get(auth.COOKIE_NAME)
     if not token:
         raise HTTPException(
@@ -187,12 +165,6 @@ def current_user(request: Request) -> str:
 
 
 def require_admin(user_id: str = Depends(current_user)) -> str:
-    """Dependency for admin-only routes.
-
-    Wraps ``current_user`` so a non-admin gets a 403 rather than a 401.
-    The distinction matters: 401 means "you aren't logged in", 403 means
-    "you're logged in, but not allowed here."
-    """
     storage_mod = get_storage()
     if not storage_mod.is_admin(user_id):
         raise HTTPException(
@@ -206,10 +178,6 @@ def require_admin(user_id: str = Depends(current_user)) -> str:
 # Helpers
 # ---------------------------------------------------------------------------
 class _SavedFileAdapter:
-    """Adapts an on-disk path into the shape ``load_uploaded_documents``
-    expects: ``.name`` and ``.getvalue()``.
-    """
-
     def __init__(self, path: Path, name: str):
         self._path = path
         self.name = name
@@ -241,9 +209,6 @@ def _resolve_document_filenames(
     document_ids: Optional[list[str]],
     user_id: str,
 ) -> Optional[list[str]]:
-    """Translate incoming document UUIDs (from /documents) into the
-    filenames the RAG engine indexes chunks under.
-    """
     if not document_ids:
         return None
 
@@ -261,14 +226,6 @@ def _resolve_document_filenames(
 # Auth routes
 # ---------------------------------------------------------------------------
 def _set_session_cookie(response: Response, user_id: str) -> None:
-    """Attach the JWT as an HTTP-only cookie.
-
-    Local development uses ``secure=False`` so the cookie works over
-    plain HTTP on localhost. In production (Railway, behind HTTPS) we
-    flip to ``secure=True`` so the browser refuses to send the cookie
-    over plain HTTP. The switch is driven by the ``ENV`` variable —
-    set ``ENV=production`` in Railway, leave it unset locally.
-    """
     is_prod = (os.getenv("ENV") or "").strip().lower() == "production"
     response.set_cookie(
         key=auth.COOKIE_NAME,
@@ -286,11 +243,17 @@ def _user_payload(user_id: str, email: str, is_admin: bool = False) -> dict:
 
 
 @app.post(f"{_settings.api_prefix}/auth/register")
-def auth_register(
-    body: RegisterRequest,
-    response: Response,
-) -> dict:
-    """Create a new account. Also migrates any pre-auth 'anon' data."""
+def auth_register(body: RegisterRequest) -> dict:
+    """Create a new account.
+
+    Does NOT set the session cookie here. Chrome's bounce-tracking
+    mitigation clears cookies set on cross-site POSTs from a different
+    top-level origin, which is exactly what our split-origin deploy
+    produces. Instead we return a one-time exchange token; the frontend
+    POSTs it back to /auth/exchange via fetch, and THAT response sets
+    the session cookie — fetch-initiated Set-Cookie survives bounce
+    tracking.
+    """
     storage_mod = get_storage()
 
     existing = storage_mod.get_user_by_email(body.email)
@@ -303,52 +266,82 @@ def auth_register(
     password_hash = auth.hash_password(body.password)
     new_user_id = storage_mod.create_user(body.email, password_hash)
     if not new_user_id:
-        # Race condition: another request created the same email in
-        # the window between our check and the insert.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with that email already exists",
         )
 
-    # First registration migrates any pre-auth data into this account.
     try:
         storage_mod.migrate_anon_data_to_user(new_user_id)
     except Exception:
         logger.exception("Failed to migrate anon data on register")
 
-    # Analytics — record the signup. Best-effort; never blocks auth.
     storage_mod.record_auth_event(new_user_id, "signup")
 
-    _set_session_cookie(response, new_user_id)
-    is_admin = storage_mod.is_admin(new_user_id)
-    return _user_payload(new_user_id, body.email, is_admin)
+    exchange_token = auth.create_exchange_token(new_user_id, ttl_seconds=120)
+    return {
+        "exchange_token": exchange_token,
+        "user_id": new_user_id,
+        "email": body.email,
+        "is_admin": storage_mod.is_admin(new_user_id),
+    }
 
 
 @app.post(f"{_settings.api_prefix}/auth/login")
-def auth_login(
-    body: LoginRequest,
-    response: Response,
-) -> dict:
-    """Verify credentials and set the session cookie."""
+def auth_login(body: LoginRequest) -> dict:
+    """Verify credentials. Does NOT set the session cookie here.
+
+    Same bounce-tracking rationale as auth_register: returns a one-time
+    exchange token for the frontend to redeem at /auth/exchange.
+    """
     storage_mod = get_storage()
 
     row = storage_mod.get_user_by_email(body.email)
     if not row or not auth.verify_password(
         body.password, row["password_hash"]
     ):
-        # Same message for "no such user" and "wrong password" — do
-        # not leak which one was wrong.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
 
-    # Analytics — record the login. Best-effort.
     storage_mod.record_auth_event(row["id"], "login")
 
-    _set_session_cookie(response, row["id"])
-    is_admin = storage_mod.is_admin(row["id"])
-    return _user_payload(row["id"], row["email"], is_admin)
+    exchange_token = auth.create_exchange_token(row["id"], ttl_seconds=120)
+    return {
+        "exchange_token": exchange_token,
+        "user_id": row["id"],
+        "email": row["email"],
+        "is_admin": storage_mod.is_admin(row["id"]),
+    }
+
+
+@app.post(f"{_settings.api_prefix}/auth/exchange")
+def auth_exchange(body: ExchangeRequest, response: Response) -> dict:
+    """Redeem a one-time exchange token for a session cookie.
+
+    Called via fetch() from the frontend after login/register/Google.
+    Because this is a fetch response (not a top-level navigation
+    response), Chrome's bounce-tracking mitigation leaves the cookie
+    alone. This is the endpoint that actually establishes the session.
+    """
+    user_id = auth.consume_exchange_token(body.token)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    storage_mod = get_storage()
+    row = storage_mod.get_user_by_id(user_id)
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    _set_session_cookie(response, user_id)
+    return _user_payload(row["id"], row["email"], storage_mod.is_admin(user_id))
 
 
 @app.post(f"{_settings.api_prefix}/auth/logout")
@@ -356,12 +349,6 @@ def auth_logout(
     response: Response,
     user_id: str = Depends(current_user),
 ) -> dict:
-    """Clear the session cookie and record the logout event.
-
-    Requires a valid session now — the previous version cleared the
-    cookie unconditionally, which was harmless but left us blind to
-    logout frequency in analytics.
-    """
     storage_mod = get_storage()
     storage_mod.record_auth_event(user_id, "logout")
     response.delete_cookie(
@@ -373,12 +360,9 @@ def auth_logout(
 
 @app.get(f"{_settings.api_prefix}/auth/me")
 def auth_me(user_id: str = Depends(current_user)) -> dict:
-    """Return the current user, or 401 if not logged in."""
     storage_mod = get_storage()
     row = storage_mod.get_user_by_id(user_id)
     if not row:
-        # The cookie was valid, but the user row was deleted. Treat
-        # this as unauthenticated.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Account no longer exists",
@@ -407,7 +391,6 @@ async def upload_document(
     file: UploadFile = File(...),
     user_id: str = Depends(current_user),
 ) -> UploadResponse:
-    """Persist a single uploaded file, build its index entry, register it."""
     storage_mod = get_storage()
     engine = get_rag_engine()
 
@@ -584,7 +567,6 @@ def delete_document(
             except Exception:
                 logger.exception("Failed to delete session %s", sid)
 
-    # Existing document deletion path — unchanged.
     try:
         engine.delete_document(row.filename)
     except Exception:
@@ -667,7 +649,6 @@ async def query(
 # Query — SSE streaming
 # ---------------------------------------------------------------------------
 def _sse(events: Iterator[dict]) -> Iterator[str]:
-    """Serialize each event dict as an SSE `data:` line."""
     for ev in events:
         try:
             payload = json.dumps(ev, default=str)
@@ -733,10 +714,6 @@ async def query_image(
     document_ids: Optional[str] = Form(None),
     user_id: str = Depends(current_user),
 ) -> StreamingResponse:
-    """Image-based Q&A. Persists the image, extracts questions via Groq
-    Vision, then answers each from the loaded documents. Streams SSE
-    events and persists every answer so the batch survives a page reload.
-    """
     engine = get_rag_engine()
     storage_mod = get_storage()
 
@@ -750,9 +727,6 @@ async def query_image(
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Empty image.")
 
-    # Persist the image to disk before the vision call — if extraction
-    # fails we still want the user's upload to be recoverable, and the
-    # URL needs to exist by the time the frontend renders it.
     image_id = uuid.uuid4().hex
     image_path = IMAGE_DIR / f"img_{image_id}.jpg"
     try:
@@ -768,7 +742,6 @@ async def query_image(
     try:
         questions = extract_questions_from_image(image_bytes)
     except ValueError as exc:
-        # Clean up the orphaned file before surfacing the error.
         try:
             image_path.unlink(missing_ok=True)
         except OSError:
@@ -777,9 +750,6 @@ async def query_image(
 
     sid = storage_mod.get_or_create_session(session_id, user_id=user_id)
 
-    # Capture the persisted message_id so the SSE `questions` event can
-    # carry it. Without this, the frontend can't attach feedback to the
-    # batch until the session is reloaded.
     image_message_id = 0
     try:
         image_message_id = storage_mod.add_message(
@@ -803,33 +773,19 @@ async def query_image(
     engine_document_ids = _resolve_document_filenames(doc_id_list, user_id)
 
     def event_stream() -> Iterator[str]:
-        # Mirror every answer_done into storage as an assistant message
-        # so the batch is reconstructable on session reload.
         for evt in engine.stream_batch(
             questions,
             sid,
             document_ids=engine_document_ids,
             user_id=user_id,
         ):
-            # Mutate first — the payload is serialized *after* every
-            # augmentation, otherwise the client never sees them.
             if evt["type"] == "questions":
-                # Surface the URL and the persisted message id so the
-                # client can render the image and wire feedback without
-                # a second round-trip.
                 evt.setdefault("data", {})
                 evt["data"]["image_url"] = image_url
                 evt["data"]["message_id"] = image_message_id
 
             if evt["type"] == "answer_done":
                 data = evt.get("data") or {}
-                # Skip persistence for unanswered questions — an empty
-                # row with no content would render as a blank bubble on
-                # reload and pushes the batch's citation pills out of
-                # alignment. Not-covered answers are also skipped: the
-                # question text itself is already persisted on the user
-                # image message, so the batch reconstructs with a
-                # "Not covered" placeholder without needing a row.
                 answer_text = str(data.get("answer", "")).strip()
                 if answer_text and not data.get("not_covered", False):
                     try:
@@ -1011,7 +967,6 @@ def delete_session(
     if not storage_mod.session_exists(session_id, user_id=user_id):
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Collect image ids *before* deleting the rows that reference them.
     image_ids = storage_mod.session_image_ids(session_id, user_id=user_id)
 
     storage_mod.delete_session(session_id, user_id=user_id)
@@ -1118,13 +1073,6 @@ def admin_summary(
     days: int = Query(0, ge=0, le=3650),
     _: str = Depends(require_admin),
 ) -> dict:
-    """Headline totals for the dashboard's summary cards.
-
-    ``days=0`` means lifetime — every counter returns its all-time
-    total. Any positive value scopes each count to rows created in the
-    last N days. The range selector in the frontend sends 0 for "All"
-    and 7/30/90 for the shorter windows.
-    """
     storage_mod = get_storage()
     since = None if days == 0 else time.time() - (days * 86400)
     return {
@@ -1140,10 +1088,6 @@ def admin_timeseries(
     days: int = Query(30, ge=0, le=3650),
     _: str = Depends(require_admin),
 ) -> dict:
-    """Per-day time series for signups, logins, and sessions created.
-
-    ``days=0`` returns lifetime data — every day since the first event.
-    """
     storage_mod = get_storage()
     return {
         "days": days,
@@ -1159,10 +1103,6 @@ def admin_rag(
     days: int = Query(30, ge=0, le=3650),
     _: str = Depends(require_admin),
 ) -> dict:
-    """Aggregate RAG evaluation metrics over the last N days.
-
-    ``days=0`` returns lifetime metrics.
-    """
     storage_mod = get_storage()
     return storage_mod.rag_metrics_aggregate(days=days)
 
@@ -1172,7 +1112,6 @@ def admin_recent(
     limit: int = Query(50, ge=1, le=500),
     _: str = Depends(require_admin),
 ) -> dict:
-    """Recent assistant turns with their eval metrics, for the table."""
     storage_mod = get_storage()
     return {"queries": storage_mod.recent_queries(limit=limit)}
 
