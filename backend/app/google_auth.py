@@ -1,14 +1,31 @@
 """Google OAuth 2.0 endpoints.
 
-Two routes:
-  GET /auth/google/start     — redirects the browser to Google's consent
-                               screen.
-  GET /auth/google/callback  — Google redirects back here with a `code`
-                               query param. We exchange it for an ID
-                               token, extract the `sub` and `email`,
-                               find-or-create the user, set the same
-                               JWT cookie the password login uses, and
-                               302 the browser to /app.
+Three routes:
+  GET  /auth/google/start     — redirects the browser to Google's consent
+                                screen.
+  GET  /auth/google/callback  — Google redirects back here with a `code`
+                                query param. We exchange it for an ID
+                                token, extract the `sub` and `email`,
+                                find-or-create the user, then redirect
+                                to the FRONTEND with a short-lived
+                                one-time exchange token.
+  POST /auth/exchange         — called by the frontend (via fetch) with
+                                the one-time token. Returns the user and
+                                sets the session cookie on THIS response.
+
+Why the extra hop?
+------------------
+Chrome's Bounce Tracking Mitigations (on by default) delete cookies for
+domains that appear only as intermediate navigation hops in a redirect
+chain. The old design set the session cookie on the /callback redirect
+response — but `argus-grounded-...` is never the *destination* of a
+navigation, only a stopover between Google and the frontend. Chrome
+detected that and deleted the cookie.
+
+Fix: the callback no longer sets the session cookie. Instead it redirects
+to the frontend with a one-time token. The frontend then calls
+/auth/exchange via fetch(). The cookie is set on that fetch response —
+which is not a navigation chain, so bounce tracking ignores it.
 """
 
 from __future__ import annotations
@@ -47,7 +64,7 @@ def _set_session_cookie(response: Response, user_id: str) -> None:
         value=auth.create_jwt(user_id),
         httponly=True,
         samesite="none",
-        secure=(os.getenv("ENV") or "").strip().lower() == "production",  # flip to True on HTTPS deployments
+        secure=(os.getenv("ENV") or "").strip().lower() == "production",
         max_age=auth.JWT_EXPIRE_DAYS * 24 * 3600,
         path="/",
     )
@@ -81,7 +98,7 @@ def google_callback(
     error: Optional[str] = None,
 ) -> RedirectResponse:
     """Handle Google's redirect. Exchanges code, finds-or-creates user,
-    sets the session cookie, and redirects to /app."""
+    then redirects to the frontend with a one-time exchange token."""
     settings = get_settings()
     frontend = settings.frontend_url.rstrip("/")
 
@@ -160,12 +177,45 @@ def google_callback(
     if not user_id:
         return RedirectResponse(f"{frontend}/login?google_error=create")
 
-    # Set the session cookie and redirect.
     try:
         storage_mod.record_auth_event(user_id, "login")
     except Exception:
         pass
 
-    response = RedirectResponse(f"{frontend}/app")
+    # IMPORTANT: do NOT set the session cookie here. Chrome's bounce
+    # tracking mitigation deletes cookies set on domains that only appear
+    # as redirect hops. Instead, mint a one-time token and send the browser
+    # to the frontend, which will call /auth/exchange via fetch.
+    exchange_token = auth.create_exchange_token(user_id, ttl_seconds=120)
+    return RedirectResponse(
+        f"{frontend}/auth/google/callback?token={exchange_token}"
+    )
+
+
+@router.post("/auth/exchange")
+async def google_exchange(payload: dict, response: Response) -> dict:
+    """Exchange a one-time OAuth token for a session cookie.
+
+    Called via fetch() from the frontend's /auth/google/callback route.
+    Sets the session cookie on THIS response — a fetch response from the
+    frontend's origin, which Chrome does not treat as a bounce hop.
+    """
+    token = (payload or {}).get("token")
+    if not token:
+        raise HTTPException(status_code=400, detail="Missing token")
+
+    user_id = auth.consume_exchange_token(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    user = storage_mod.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
     _set_session_cookie(response, user_id)
-    return response
+
+    return {
+        "user_id": user_id,
+        "email": user["email"],
+        "is_admin": bool(user.get("is_admin", False)),
+    }
