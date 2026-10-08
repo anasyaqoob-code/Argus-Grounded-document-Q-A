@@ -1,12 +1,11 @@
-FROM node:20-alpine AS build
+FROM node:20.18.0-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-ARG CACHEBUST=1
-RUN echo "cachebust=$CACHEBUST" && npm run build
+RUN npm run build
 
-FROM node:20-alpine
+FROM node:20.18.0-alpine
 WORKDIR /app
 RUN npm i -g serve@14
 COPY --from=build /app/dist ./dist
