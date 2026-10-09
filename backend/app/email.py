@@ -1,46 +1,31 @@
-"""Email wrapper — Gmail SMTP with Resend fallback.
+"""Email wrapper — Resend only.
 
-Primary: Gmail SMTP (sends to any recipient, free, no domain needed).
-Fallback: Resend (used if GMAIL_USER is not configured).
+Reads RESEND_API_KEY, RESEND_FROM_EMAIL, RESEND_FROM_NAME from env.
+Failures are logged but never raised to the caller.
 
-Reads GMAIL_USER, GMAIL_APP_PASSWORD, RESEND_API_KEY, RESEND_FROM_EMAIL,
-RESEND_FROM_NAME from env. Failures are logged but never raised to the
-caller; a broken email send must not 500 a password-reset request that
-already wrote its token to the database.
-
-Note: Railway blocks outbound SMTP on ports 25, 465, and 587. We use
-port 2525 (Gmail's alternate submission port) instead — Gmail still
-requires STARTTLS on it, which we call explicitly below.
+Note: Railway blocks outbound SMTP (ports 25/465/587/2525). All email
+must go through an HTTPS API — Resend in this case. In sandbox mode
+(from=onboarding@resend.dev), Resend only delivers to the account
+owner's address. Verify a domain to send to any recipient.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 
 import resend
 
 logger = logging.getLogger("argus.email")
 
 
-def _gmail_user() -> str:
-    return (os.getenv("GMAIL_USER") or "").strip()
-
-
-def _gmail_password() -> str:
-    return (os.getenv("GMAIL_APP_PASSWORD") or "").replace(" ", "").strip()
-
-
-def _configure_resend() -> None:
+def _configure() -> None:
     key = (os.getenv("RESEND_API_KEY") or "").strip()
     if key:
         resend.api_key = key
 
 
-def _resend_from_header() -> str:
+def _from_header() -> str:
     name = (os.getenv("RESEND_FROM_NAME") or "Argus").strip()
     addr = (os.getenv("RESEND_FROM_EMAIL") or "onboarding@resend.dev").strip()
     return f"{name} <{addr}>"
@@ -77,72 +62,28 @@ def _reset_html(reset_url: str) -> str:
     """
 
 
-def _send_via_gmail(to_email: str, subject: str, html: str) -> bool:
-    user = _gmail_user()
-    password = _gmail_password()
+def send_password_reset(to_email: str, reset_url: str) -> bool:
+    """Send a password reset link via Resend.
 
-    if not user or not password:
-        return False
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = f"Argus <{user}>"
-    msg["To"] = to_email
-    msg.attach(MIMEText(html, "html"))
-
-    try:
-        # Port 2525 is Gmail's alternate submission port.
-        # Railway blocks 25/465/587 outbound.
-        with smtplib.SMTP("smtp.gmail.com", 2525, timeout=20) as server:
-            server.starttls()
-            server.login(user, password)
-            server.send_message(msg)
-        logger.info("Password reset email sent via Gmail to %s", to_email)
-        return True
-    except Exception:
-        logger.exception("Gmail SMTP failed for %s", to_email)
-        return False
-
-
-def _send_via_resend(to_email: str, subject: str, html: str) -> bool:
-    _configure_resend()
+    Returns True on success, False on any failure. Never raises.
+    """
+    _configure()
     if not os.getenv("RESEND_API_KEY"):
+        logger.warning("RESEND_API_KEY not set — skipping password reset email")
         return False
 
     try:
         resend.Emails.send({
-            "from": _resend_from_header(),
+            "from": _from_header(),
             "to": to_email,
-            "subject": subject,
-            "html": html,
+            "subject": "Reset your Argus password",
+            "html": _reset_html(reset_url),
         })
         logger.info("Password reset email sent via Resend to %s", to_email)
         return True
     except Exception:
         logger.exception("Resend failed for %s", to_email)
         return False
-
-
-def send_password_reset(to_email: str, reset_url: str) -> bool:
-    """Send a password reset link.
-
-    Tries Gmail SMTP first (works to any recipient without a verified
-    domain). Falls back to Resend if Gmail creds are missing.
-    Returns True on success, False on any failure.
-    """
-    subject = "Reset your Argus password"
-    html = _reset_html(reset_url)
-
-    if _gmail_user() and _gmail_password():
-        if _send_via_gmail(to_email, subject, html):
-            return True
-        logger.warning("Gmail send failed; trying Resend fallback")
-
-    if os.getenv("RESEND_API_KEY"):
-        return _send_via_resend(to_email, subject, html)
-
-    logger.warning("No email sender configured (GMAIL_USER or RESEND_API_KEY)")
-    return False
 
 
 __all__ = ["send_password_reset"]
