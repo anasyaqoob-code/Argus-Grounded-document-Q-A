@@ -1036,28 +1036,42 @@ def suggest_questions(
     payload: dict,
     user_id: str = Depends(current_user),
 ) -> dict:
+    """Generate starter questions from the CALLER'S OWN documents only.
+
+    Previously this fell back to `engine.document_records` — a global
+    in-memory registry of every user's files — which leaked filenames,
+    topics, and PII across accounts. Now we resolve filenames via
+    `storage.list_documents(user_id=...)`, which is the same scoped
+    query the /documents endpoint uses, and we pass `user_id` down so
+    the engine can filter its chunk pool too.
+    """
     engine = get_rag_engine()
+    storage_mod = get_storage()
     raw_ids = payload.get("document_ids")
     max_q = int(payload.get("max_questions", 4))
 
+    # Resolve the caller's own document filenames.
     if raw_ids:
-        storage_mod = get_storage()
-        translated: list[str] = []
+        doc_names: list[str] = []
         for ident in raw_ids:
             row = storage_mod.get_document(ident, user_id=user_id)
-            if row:
-                translated.append(row.filename)
-            else:
-                translated.append(ident)
-        doc_names = translated or list(engine.document_records.keys())
+            if row and row.filename and row.filename not in doc_names:
+                doc_names.append(row.filename)
     else:
-        doc_names = list(engine.document_records.keys())
+        doc_names = [
+            d.filename
+            for d in storage_mod.list_documents(user_id=user_id)
+        ]
 
     if not doc_names:
         return {"questions": []}
 
     try:
-        questions = engine.suggest_questions(doc_names, max_questions=max_q)
+        questions = engine.suggest_questions(
+            doc_names,
+            user_id=user_id,
+            max_questions=max_q,
+        )
     except Exception as exc:
         logger.warning("suggest_questions failed: %s", exc)
         questions = []

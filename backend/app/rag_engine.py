@@ -1208,8 +1208,19 @@ class AgenticRAGService:
         return result.chunks
 
     def suggest_questions(
-        self, doc_names: list[str], max_questions: int = 4
+        self,
+        doc_names: list[str],
+        user_id: str,
+        max_questions: int = 4,
     ) -> list[str]:
+        """Generate starter questions from the CALLER'S documents only.
+
+        `doc_names` is already scoped by the caller (main.py resolves it via
+        `storage.list_documents(user_id=...)`). This method additionally
+        filters `self.chunks` down to chunks whose filename appears in
+        `doc_names` — otherwise the engine would sample the global chunk
+        pool and leak other users' document content into the suggestions.
+        """
         if not self.chunks:
             return []
 
@@ -1232,9 +1243,17 @@ class AgenticRAGService:
             ]
             return out[:max_questions]
 
+        # Scope the chunk pool to the caller's documents.
+        allowed = set(doc_names)
         per_doc: dict[str, list[Chunk]] = {}
         for chunk in self.chunks:
+            if chunk.filename not in allowed:
+                continue
             per_doc.setdefault(chunk.filename, []).append(chunk)
+
+        # No chunks matched the caller's documents — use the template fallback.
+        if not per_doc:
+            return _fallback()[:max_questions]
 
         samples: list[str] = []
         for src, chunks in per_doc.items():
