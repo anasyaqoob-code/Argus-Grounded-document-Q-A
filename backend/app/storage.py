@@ -61,10 +61,17 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
 # Anchor to this file, not the CWD.
 _THIS_DIR = Path(__file__).resolve().parent
-DATA_DIR = _THIS_DIR / "data"
+_DEFAULT_DATA_DIR = _THIS_DIR / "data"
+
+# Honour SQLITE_PATH / CHROMA_PATH env vars so a Railway-mounted
+# volume (e.g. /data) actually persists the DB and vector index
+# across rebuilds. Without this, the app silently writes to
+# <_THIS_DIR>/data/, which lives on the container's ephemeral
+# filesystem and is wiped on every deploy.
+DATA_DIR = Path(os.getenv("ARGUS_DATA_DIR") or _DEFAULT_DATA_DIR)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
-DB_PATH = DATA_DIR / "app.db"
-CHROMA_DIR = DATA_DIR / "chroma"
+DB_PATH = Path(os.getenv("SQLITE_PATH") or (DATA_DIR / "app.db"))
+CHROMA_DIR = Path(os.getenv("CHROMA_PATH") or (DATA_DIR / "chroma"))
 
 DEFAULT_USER_ID = "anon"
 

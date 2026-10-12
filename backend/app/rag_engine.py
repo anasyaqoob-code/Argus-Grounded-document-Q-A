@@ -65,8 +65,12 @@ MAX_PAST_SESSIONS = 3
 MAX_PAST_SUMMARY_CHARS = 600
 
 _THIS_DIR = Path(__file__).resolve().parent
-DATA_DIR = _THIS_DIR / "data"
-CHROMA_DIR = DATA_DIR / "chroma"
+_DEFAULT_DATA_DIR = _THIS_DIR / "data"
+
+# See storage.py for rationale — honour SQLITE_PATH / CHROMA_PATH
+# so a Railway volume mounted at /data is actually used.
+DATA_DIR = Path(os.getenv("ARGUS_DATA_DIR") or _DEFAULT_DATA_DIR)
+CHROMA_DIR = Path(os.getenv("CHROMA_PATH") or (DATA_DIR / "chroma"))
 META_FILE = CHROMA_DIR / "index_meta.pkl"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 CHROMA_DIR.mkdir(parents=True, exist_ok=True)

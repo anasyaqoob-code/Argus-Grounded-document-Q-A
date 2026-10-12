@@ -7,6 +7,7 @@ RAG engine reads the new Groq / HF fields exclusively.
 """
 
 from functools import lru_cache
+import os
 from typing import Optional
 
 from pydantic import Field
@@ -113,8 +114,8 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # Storage
     # ------------------------------------------------------------------
-    sqlite_path: str = "argus.db"
-    chroma_path: str = "./chroma_data"
+    sqlite_path: str = os.getenv("SQLITE_PATH", "argus.db")
+    chroma_path: str = os.getenv("CHROMA_PATH", "./chroma_data")
 
     @property
     def allowed_ext_set(self) -> set[str]:
