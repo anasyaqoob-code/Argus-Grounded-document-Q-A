@@ -44,6 +44,7 @@ from . import auth
 from . import storage
 from . import password_reset
 from . import google_auth
+from .rate_limit import limit_query, limit_image
 from .agent_state import AgentSettings
 from .config import get_settings
 from .rag_engine import get_rag_engine
@@ -597,6 +598,7 @@ def delete_document(
 async def query(
     req: QueryRequest,
     user_id: str = Depends(current_user),
+    _rl: None = Depends(limit_query),
 ) -> AnswerResponse:
     storage_mod = get_storage()
     engine = get_rag_engine()
@@ -667,6 +669,7 @@ def _sse(events: Iterator[dict]) -> Iterator[str]:
 async def query_stream(
     req: QueryRequest,
     user_id: str = Depends(current_user),
+    _rl: None = Depends(limit_query),
 ) -> StreamingResponse:
     storage_mod = get_storage()
     engine = get_rag_engine()
@@ -713,6 +716,7 @@ async def query_image(
     session_id: Optional[str] = Form(None),
     document_ids: Optional[str] = Form(None),
     user_id: str = Depends(current_user),
+    _rl: None = Depends(limit_image),
 ) -> StreamingResponse:
     engine = get_rag_engine()
     storage_mod = get_storage()
@@ -1035,6 +1039,7 @@ def set_feedback(
 def suggest_questions(
     payload: dict,
     user_id: str = Depends(current_user),
+    _rl: None = Depends(limit_query),
 ) -> dict:
     """Generate starter questions from the CALLER'S OWN documents only.
 
