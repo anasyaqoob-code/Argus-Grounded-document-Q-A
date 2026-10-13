@@ -1075,11 +1075,7 @@ export function DocumentList({
 
   return (
     <>
-      {/* Section label with count */}
-      <div className="sidebar-section-label sidebar-section-label--split">
-        <span>Documents</span>
-        {docs.length > 0 && <span className="sidebar-count">{docs.length}</span>}
-      </div>
+      
 
       {/* Empty state */}
       {docs.length === 0 && (
