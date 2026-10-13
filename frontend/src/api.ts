@@ -29,7 +29,7 @@ import type {
   SessionInfo,
   UploadResponse,
 } from "./types";
-
+type Citation = { filename: string; page?: number };
 const env = (import.meta as unknown as {
   env?: { VITE_API_BASE?: string; PROD?: boolean };
 }).env;
@@ -57,7 +57,8 @@ const BASE =
   (env?.PROD ? PROD_BACKEND : "http://localhost:8000");
 
 const API = `${BASE}/api/v1`;
-
+export const BACKEND_ORIGIN = BASE;
+export const API_BASE = API;
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = res.statusText;

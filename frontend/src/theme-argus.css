@@ -1,0 +1,524 @@
+/* theme-argus.css
+ * Ports the landing page's hero-card visual language into neutral,
+ * reusable classes so the chat workspace matches it without depending
+ * on .lp2-* scoped styles.
+ */
+
+:root {
+  /* Palette */
+  --argus-bg-base:        #0a0710;
+  --argus-bg-glow:        rgba(139, 92, 246, 0.14);
+  --argus-panel:          rgba(22, 16, 34, 0.72);
+  --argus-panel-strong:   rgba(28, 20, 44, 0.9);
+  --argus-panel-border:   rgba(255, 255, 255, 0.06);
+  --argus-panel-glow:     rgba(139, 92, 246, 0.18);
+
+  --argus-accent-1:       #8b5cf6;
+  --argus-accent-2:       #e879f9;
+  --argus-accent-grad:    linear-gradient(90deg, #8b5cf6, #e879f9);
+  --argus-accent-glow:    0 8px 32px rgba(139, 92, 246, 0.35);
+
+  --argus-cite:           #f5a623;
+  --argus-text-primary:   #f4f4f5;
+  --argus-text-secondary: #a1a1aa;
+  --argus-text-tertiary:  #71717a;
+
+  --argus-dot-complete:   #34d399;
+  --argus-dot-running:    #c4b5fd;
+  --argus-dot-failed:     #f87171;
+  --argus-dot-pending:    #52525b;
+
+  --argus-radius-card:    24px;
+  --argus-radius-pill:    999px;
+  --argus-radius-chip:    10px;
+  --argus-radius-control: 12px;
+}
+
+/* ------------------------------------------------------------------ *
+ * Workspace background
+ * ------------------------------------------------------------------ */
+.argus-workspace-bg {
+  background:
+    radial-gradient(1200px 800px at 12% -8%, var(--argus-bg-glow), transparent 60%),
+    radial-gradient(900px 600px at 105% 110%, rgba(232, 121, 249, 0.08), transparent 55%),
+    var(--argus-bg-base);
+  min-height: 100vh;
+}
+
+/* ------------------------------------------------------------------ *
+ * Message list
+ * ------------------------------------------------------------------ */
+.msg,
+.msg.assistant,
+.msg.user {
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  max-width: none;
+  width: 100%;
+}
+
+.messages {
+  width: 100%;
+  /* No max-width — fills the full chat column, no side gutters. */
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Slim scrollbar */
+.messages::-webkit-scrollbar,
+.main::-webkit-scrollbar {
+  width: 8px;
+  background: transparent;
+}
+.messages::-webkit-scrollbar-thumb,
+.main::-webkit-scrollbar-thumb {
+  background: rgba(139, 92, 246, 0.25);
+  border-radius: 4px;
+}
+.messages::-webkit-scrollbar-thumb:hover,
+.main::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 92, 246, 0.45);
+}
+
+/* Assistant row: avatar rail + body */
+.argus-msg-row {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 10px;
+  align-items: start;
+  width: 100%;
+}
+
+.argus-msg-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+
+.argus-msg-body {
+  min-width: 0;
+  width: 100%;
+}
+
+/* ------------------------------------------------------------------ *
+ * Assistant message card
+ * ------------------------------------------------------------------ */
+.argus-card {
+  position: relative;
+  width: 100%;
+  background: var(--argus-panel);
+  border: 1px solid var(--argus-panel-border);
+  border-radius: 18px;
+  padding: 16px 20px;
+  backdrop-filter: blur(12px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.argus-card::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  pointer-events: none;
+  border-radius: inherit;
+  background: radial-gradient(
+    120% 60% at 0% 0%,
+    var(--argus-panel-glow),
+    transparent 70%
+  );
+  opacity: 0.6;
+}
+
+.argus-card-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.argus-doc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--argus-radius-chip);
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.28);
+  color: #d8b4fe;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  max-width: 62%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.argus-doc-chip-more {
+  background: rgba(139, 92, 246, 0.06);
+  border-color: rgba(139, 92, 246, 0.18);
+  color: var(--argus-text-secondary);
+}
+
+.argus-badge-cited {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: var(--argus-radius-chip);
+  background: rgba(52, 211, 153, 0.14);
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  color: #6ee7b7;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.argus-badge-abstained {
+  background: rgba(248, 113, 113, 0.14);
+  border-color: rgba(248, 113, 113, 0.3);
+  color: #fca5a5;
+}
+
+/* ------------------------------------------------------------------ *
+ * Question row
+ * ------------------------------------------------------------------ */
+.argus-card-q {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--argus-text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.argus-card-q-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: rgba(139, 92, 246, 0.16);
+  color: #c4b5fd;
+  font-size: 10px;
+  font-weight: 700;
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+/* ------------------------------------------------------------------ *
+ * Answer body + citations
+ * ------------------------------------------------------------------ */
+.argus-card-a {
+  color: var(--argus-text-primary);
+  font-size: 14px;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+.argus-card-a p { margin: 0 0 8px; }
+.argus-card-a p:last-child { margin-bottom: 0; }
+
+.argus-cite {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 18px;
+  padding: 0 6px;
+  margin-left: 3px;
+  border-radius: 6px;
+  background: rgba(139, 92, 246, 0.18);
+  border: 1px solid rgba(139, 92, 246, 0.38);
+  color: #c4b5fd;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-weight: 600;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  vertical-align: 1px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  font-variant-numeric: tabular-nums;
+}
+
+.argus-cite:hover {
+  background: rgba(139, 92, 246, 0.28);
+  border-color: rgba(139, 92, 246, 0.55);
+}
+
+/* ------------------------------------------------------------------ *
+ * Card footer — hosts the feedback action row
+ * ------------------------------------------------------------------ */
+.argus-card-footer {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* ------------------------------------------------------------------ *
+ * Shared toggle-row: Sources + Agent Trace
+ * ------------------------------------------------------------------ */
+.argus-sources,
+.argus-trace {
+  margin: 10px 0 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding-top: 8px;
+}
+
+.argus-sources-header,
+.argus-trace-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 0;
+  background: none;
+  border: none;
+  color: var(--argus-text-secondary);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.15s ease;
+  text-align: left;
+  outline: none;
+  border-radius: 6px;
+}
+
+.argus-sources-header:hover,
+.argus-trace-header:hover {
+  color: var(--argus-text-primary);
+}
+
+/* Focus ring — declared AFTER the base rule so it wins the cascade. */
+.argus-sources-header:focus-visible,
+.argus-trace-header:focus-visible {
+  outline: 2px solid rgba(139, 92, 246, 0.6);
+  outline-offset: 3px;
+}
+
+.argus-sources-toggle,
+.argus-trace-toggle {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--argus-text-secondary);
+  line-height: 1;
+  padding: 2px 4px;
+  flex-shrink: 0;
+}
+
+/* ------------------------------------------------------------------ *
+ * Pulse dots (shared by Sources + Trace)
+ * ------------------------------------------------------------------ */
+.argus-sources-pulse,
+.argus-trace-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #c4b5fd;
+  box-shadow: 0 0 8px rgba(196, 181, 253, 0.9);
+  flex-shrink: 0;
+  animation: argus-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes argus-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.55; transform: scale(0.85); }
+}
+
+/* ------------------------------------------------------------------ *
+ * Sources accordion body
+ * ------------------------------------------------------------------ */
+.argus-sources-count {
+  color: var(--argus-text-tertiary);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  font-family: inherit;
+}
+
+.argus-sources-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.argus-source-item {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: rgba(139, 92, 246, 0.05);
+  border: 1px solid rgba(139, 92, 246, 0.12);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.argus-source-num {
+  color: #c4b5fd;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  padding-top: 1px;
+}
+
+.argus-source-head {
+  color: var(--argus-text-primary);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+
+.argus-source-body {
+  color: var(--argus-text-secondary);
+  white-space: pre-wrap;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+/* ------------------------------------------------------------------ *
+ * Trace panel body
+ * ------------------------------------------------------------------ */
+.argus-trace-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 6px 0 2px;
+}
+
+.argus-trace-row {
+  display: grid;
+  grid-template-columns: 10px 100px 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.argus-trace-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--argus-dot-pending);
+}
+.argus-trace-dot.complete { background: var(--argus-dot-complete); box-shadow: 0 0 6px rgba(52, 211, 153, 0.6); }
+.argus-trace-dot.running  { background: var(--argus-dot-running);  box-shadow: 0 0 10px rgba(196, 181, 253, 0.9); animation: argus-pulse 1.2s ease-in-out infinite; }
+.argus-trace-dot.failed   { background: var(--argus-dot-failed);   box-shadow: 0 0 6px rgba(248, 113, 113, 0.6); }
+
+.argus-trace-state {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--argus-text-secondary);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.argus-trace-msg {
+  color: var(--argus-text-secondary);
+  font-size: 11.5px;
+}
+
+/* ------------------------------------------------------------------ *
+ * User bubble
+ * ------------------------------------------------------------------ */
+.argus-user-row {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  margin: 0;
+  padding-right: 1px;
+}
+
+.argus-user-bubble {
+  width: fit-content;
+  max-width: 560px;
+  padding: 9px 14px;
+  border-radius: 14px 14px 4px 14px;
+  background: rgba(139, 92, 246, 0.16);
+  border: 1px solid rgba(139, 92, 246, 0.28);
+  color: var(--argus-text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------------ *
+ * Workspace composer
+ * ------------------------------------------------------------------ */
+.argus-composer {
+  background: var(--argus-panel-strong);
+  border: 1px solid var(--argus-panel-border);
+  border-radius: 16px;
+  padding: 6px 6px 6px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  backdrop-filter: blur(12px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.argus-composer input,
+.argus-composer textarea {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--argus-text-primary);
+  font-size: 14px;
+  resize: none;
+}
+
+.argus-composer input::placeholder,
+.argus-composer textarea::placeholder {
+  color: var(--argus-text-tertiary);
+}
+
+.argus-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: var(--argus-radius-control);
+  background: var(--argus-accent-grad);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--argus-accent-glow);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.argus-btn-primary:hover  { transform: translateY(-1px); box-shadow: 0 10px 36px rgba(139, 92, 246, 0.45); }
+.argus-btn-primary:active { transform: translateY(0); }
+.argus-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }

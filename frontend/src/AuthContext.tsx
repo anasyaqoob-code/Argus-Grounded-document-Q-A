@@ -37,6 +37,8 @@ import React, {
   useState,
 } from "react";
 
+import { BACKEND_ORIGIN } from "./api";
+
 export interface AuthUser {
   user_id: string;
   email: string;
@@ -60,9 +62,8 @@ const AuthContext = createContext<AuthContextValue | null>(null);
  * window.location — either can resolve to the frontend host and produce
  * "same origin" requests that silently 200 with HTML.
  */
-const BACKEND_ORIGIN = "https://argus-grounded-document-q-a-production.up.railway.app";
-const AUTH_BASE = `${BACKEND_ORIGIN}/api/v1/auth`;
 
+const AUTH_BASE = `${BACKEND_ORIGIN}/api/v1/auth`;
 async function parseError(resp: Response): Promise<string> {
   try {
     const body = await resp.json();

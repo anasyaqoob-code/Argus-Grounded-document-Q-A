@@ -176,12 +176,17 @@ _ENTITY_RE = re.compile(r"\b([A-Z][a-zA-Z]{1,}|\d{2,})\b")
 
 
 def _extract_support_tokens(text: str) -> set[str]:
+    """Named-entity-like tokens (capitalized words, 2+ digit numbers)
+    from the answer, excluding stopwords and common file-type noise."""
     tokens: set[str] = set()
     for m in _ENTITY_RE.finditer(text or ""):
         tok = m.group(1)
-        if tok.lower() in _SUPPORT_STOPWORDS:
+        lower = tok.lower()
+        if lower in _SUPPORT_STOPWORDS:
             continue
-        tokens.add(tok.lower())
+        if lower in {"cv", "pdf", "txt", "md", "doc", "docx", "url", "id"}:
+            continue
+        tokens.add(lower)
     return tokens
 
 

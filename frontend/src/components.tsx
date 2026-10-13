@@ -19,8 +19,9 @@ import {
   TrashIcon,
 } from "./ArgusLogo";
 import { useSpeech, useVoiceRecorder } from "./useVoice";
+import { AnswerCard } from "./AnswerCard";
+import { UserBubble } from "./UserBubble";
 import type {
-  ActivityStep,
   AgentSettings,
   ChatMessage,
   DocumentInfo,
@@ -29,46 +30,49 @@ import type {
 } from "./types";
 
 /**
- * Fires a transient pulse class the first time `trigger` becomes true.
+ * Prepare assistant answer text for markdown rendering.
+ *
+ * NOTE: this function intentionally does *not* convert `[S1]` markers
+ * into spans. That job belongs to `AnswerCard.tsx`'s
+ * `highlightCitations`, which walks the rendered React tree and wraps
+ * each `[Sn]` in an `<span class="argus-cite">`. Having both do it
+ * caused the marker to be replaced twice: once as HTML by this
+ * function, then again as text by the renderer — the second pass saw
+ * only the inner `Sn` string, lost the surrounding brackets, and
+ * concatenated adjacent citations into `S1S2S4`.
+ *
+ * Here we only normalize whitespace so the citation renderer sees a
+ * predictable shape:
+ *   "…[S1][S2][S4]."  →  "…[S1] [S2] [S4]."
+ *   "…[S3] ."         →  "…[S3]."
  */
-function useArrivalPulse(trigger: boolean, duration = 1600) {
-  const [active, setActive] = React.useState(false);
-  const firedRef = React.useRef(false);
-
-  React.useEffect(() => {
-    if (!trigger) {
-      firedRef.current = false;
-      setActive(false);
-      return;
-    }
-    if (firedRef.current) return;
-    firedRef.current = true;
-    setActive(true);
-    const t = window.setTimeout(() => setActive(false), duration);
-    return () => window.clearTimeout(t);
-  }, [trigger, duration]);
-
-  return active;
+function prepareAnswerForDisplay(text: string): string {
+  return text
+    // Normalize non-breaking spaces to regular spaces first — the LLM
+    // and remark-gfm sometimes emit \u00A0 which \s doesn't match.
+    .replace(/\u00A0/g, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/ \n/g, "\n")
+    // Ensure at least one space between adjacent citation markers so
+    // `highlightCitations` can split them cleanly.
+    .replace(/\]\s*\[/g, "] [")
+    // Collapse any whitespace immediately before terminal punctuation.
+    .replace(/\s+([.,;:!?])/g, "$1");
 }
 
 /**
- * Prepare assistant answer text for markdown rendering.
+ * Truncate a filename for display while preserving the extension.
+ * "Anas_Yaqoob_Baig_CV.pdf" → "Anas_Yaqoob_Baig_CV.pdf"
+ * "An_Extremely_Long_Filename_With_Many_Underscores.pdf" → "An_Extremely_Long…pdf"
  */
-function prepareAnswerForDisplay(text: string, pulseActive: boolean): string {
-  const cleaned = text
-    .replace(/[ \t]{2,}/g, " ")
-    .replace(/ \n/g, "\n");
-
-  return cleaned.replace(
-    /[\[【]S(\d+)(?:\+L(\d+)-L(\d+))?[\]】]/g,
-    (_, n, start, end) => {
-      const tip = start && end ? ` title="Lines ${start}-${end}"` : "";
-      return (
-        `<span class="citation-marker${pulseActive ? " pulse" : ""}"` +
-        ` data-cite="${n}"${tip}>S${n}</span>`
-      );
-    },
-  );
+function shortenFilename(name: string, max = 26): string {
+  if (name.length <= max) return name;
+  const dot = name.lastIndexOf(".");
+  if (dot === -1) return name.slice(0, max - 1) + "…";
+  const ext = name.slice(dot);
+  const base = name.slice(0, dot);
+  const keep = Math.max(6, max - ext.length - 1);
+  return base.slice(0, keep) + "…" + ext;
 }
 
 // ===========================================================================
@@ -188,7 +192,6 @@ export function MultiAnswerBubble({
     };
   }, [exportOpen]);
 
-  // Escape closes the lightbox while it's open.
   React.useEffect(() => {
     if (!lightboxOpen) return;
     function onKey(e: KeyboardEvent) {
@@ -202,7 +205,6 @@ export function MultiAnswerBubble({
 
   const done = !msg.streaming;
 
-  // Flatten the batch to plaintext so TTS reads Q&A pairs in order.
   const spokenText = items
     .map((it) => `Q${it.id}. ${it.question}\n${it.answer}`)
     .join("\n\n");
@@ -499,7 +501,6 @@ export function ChatHeader({ version }: { version?: string }) {
           Document-grounded question answering with adaptive retrieval,
           context evaluation, and source-verified responses.
         </p>
-        {version && <span className="version">v{version}</span>}
       </div>
     </div>
   );
@@ -544,118 +545,6 @@ export function HeroEmptyState() {
         </div>
       </div>
     </div>
-  );
-}
-
-// ===========================================================================
-// Answer header — filename pills only
-// ===========================================================================
-const MAX_VISIBLE_DOCS = 3;
-
-export function AnswerHeader({ docNames }: { docNames: string[] }) {
-  const seen = Array.from(new Set(docNames));
-
-  if (seen.length === 0) return null;
-
-  const visible = seen.slice(0, MAX_VISIBLE_DOCS);
-  const remainder = Math.max(0, seen.length - visible.length);
-
-  return (
-    <>
-      <div className="answer-header">
-        <div className="answer-header-mark">
-          <ArgusLogo size={22} idSuffix="ah" />
-        </div>
-        {visible.map((name) => (
-          <span key={name} className="answer-header-doc" title={name}>
-            {name}
-          </span>
-        ))}
-        {remainder > 0 && (
-          <span
-            className="answer-header-doc answer-header-more"
-            title={seen.slice(MAX_VISIBLE_DOCS).join(", ")}
-          >
-            +{remainder} more
-          </span>
-        )}
-      </div>
-      <div className="answer-header-divider" />
-    </>
-  );
-}
-
-// ===========================================================================
-// Activity trace
-// ===========================================================================
-export function ActivityTrace({
-  steps,
-  live,
-}: {
-  steps: ActivityStep[];
-  live?: boolean;
-}) {
-  if (steps.length === 0) return null;
-
-  const label = live
-    ? ` Agent Reasoning (in progress · ${steps.length} steps)`
-    : ` Agent Reasoning (${steps.length} steps)`;
-
-  return (
-    <details className="trace" open={live}>
-      <summary>{label}</summary>
-      <div className="trace-body">
-        {steps.map((s, i) => (
-          <div key={`${s.state}-${i}`} className="trace-row">
-            <div className={`trace-dot ${s.status}`} />
-            <div className="trace-state">{s.state.toUpperCase()}</div>
-            <div className="trace-msg">{s.summary}</div>
-            {s.duration_ms > 0 && (
-              <div className="trace-dur">{s.duration_ms.toFixed(0)} ms</div>
-            )}
-          </div>
-        ))}
-      </div>
-    </details>
-  );
-}
-
-// ===========================================================================
-// Sources
-// ===========================================================================
-export function SourceList({
-  sources,
-  pulseActive,
-}: {
-  sources: SourcePreview[];
-  pulseActive?: boolean;
-}) {
-  if (sources.length === 0) return null;
-
-  return (
-    <details className="sources-block">
-      <summary> Sources ({sources.length})</summary>
-      <div>
-        {sources.map((s, i) => {
-          const preview =
-            s.preview.length > 400 ? s.preview.slice(0, 400) + "…" : s.preview;
-          return (
-            <div
-              key={`${s.source}-${s.page}-${i}`}
-              className={`source-item${pulseActive ? " highlight" : ""}`}
-              style={
-                pulseActive ? { animationDelay: `${i * 120}ms` } : undefined
-              }
-            >
-              <div className="source-head">
-                [{i + 1}] {s.source} — p.{s.page}
-              </div>
-              <div className="source-body">{preview}</div>
-            </div>
-          );
-        })}
-      </div>
-    </details>
   );
 }
 
@@ -796,105 +685,88 @@ export function MessageBubble({
   }, [exportOpen]);
 
   const done = !msg.streaming;
-  const pulseActive = useArrivalPulse(done && !msg.abstained);
 
   if (isUser) {
-    return (
-      <div className="msg user">
-        <div className="bubble">
-          <div className="content">{msg.content}</div>
-        </div>
-      </div>
-    );
+    return <UserBubble text={msg.content} />;
   }
 
   const docNames: string[] = (msg.sources ?? []).map((s) => s.source);
-  const displayText = prepareAnswerForDisplay(msg.content, pulseActive);
+  const displayText = prepareAnswerForDisplay(msg.content);
+
+  const footer = done ? (
+    <div className="feedback-row">
+      {speakSupported && (
+        <button
+          type="button"
+          className={`feedback-btn speaker-left${
+            speaking ? " speaking" : ""
+          }`}
+          onClick={() => onToggleSpeak(msg.id, displayText)}
+          title={speaking ? "Stop reading" : "Read aloud"}
+          aria-label={speaking ? "Stop reading" : "Read aloud"}
+        >
+          {speaking ? (
+            <MutedIcon size={14} idSuffix={`spk-${msg.id}`} />
+          ) : (
+            <SpeakerIcon size={14} idSuffix={`spk-${msg.id}`} />
+          )}
+        </button>
+      )}
+
+      {canRegenerate && onRegenerate && (
+        <button
+          type="button"
+          className="feedback-btn"
+          onClick={onRegenerate}
+          disabled={busy}
+          title="Regenerate this answer"
+          aria-label="Regenerate this answer"
+        >
+          <RegenerateIcon size={14} idSuffix={`regen-${msg.id}`} />
+        </button>
+      )}
+
+      {onExportMarkdown && onExportPdf && (
+        <button
+          ref={exportBtnRef}
+          type="button"
+          className="feedback-btn"
+          onClick={() => setExportOpen((v) => !v)}
+          disabled={busy}
+          title="Export conversation"
+          aria-label="Export conversation"
+        >
+          <ExportIcon size={14} idSuffix={`export-${msg.id}`} />
+        </button>
+      )}
+
+      {onFeedback && msg.messageId != null && (
+        <FeedbackButtons
+          current={feedback}
+          onRate={(r) => onFeedback(msg.messageId!, r)}
+        />
+      )}
+    </div>
+  ) : null;
 
   return (
     <div className="msg assistant">
-      <div className="bubble">
-        <AnswerHeader docNames={docNames} />
-
-        {msg.abstained && (
-          <div className="abstain-badge" title={msg.abstain_reason ?? ""}>
-            Abstained
-          </div>
-        )}
-
-        <div className="content markdown-body">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeRaw]}
-          >
-            {displayText}
-          </ReactMarkdown>
-          {msg.streaming && <span className="stream-cursor" />}
+      <div className="argus-msg-row">
+        <div className="argus-msg-avatar">
+          <ArgusLogo size={18} idSuffix={`msg-avatar-${msg.id}`} />
         </div>
-
-        {msg.trace && msg.trace.length > 0 && (
-          <ActivityTrace steps={msg.trace} live={msg.streaming} />
-        )}
-
-        {msg.sources && msg.sources.length > 0 && (
-          <SourceList sources={msg.sources} pulseActive={pulseActive} />
-        )}
-
-        {done && (
-          <div className="feedback-row">
-            {speakSupported && (
-              <button
-                type="button"
-                className={`feedback-btn speaker-left${
-                  speaking ? " speaking" : ""
-                }`}
-                onClick={() => onToggleSpeak(msg.id, displayText)}
-                title={speaking ? "Stop reading" : "Read aloud"}
-                aria-label={speaking ? "Stop reading" : "Read aloud"}
-              >
-                {speaking ? (
-                  <MutedIcon size={14} idSuffix={`spk-${msg.id}`} />
-                ) : (
-                  <SpeakerIcon size={14} idSuffix={`spk-${msg.id}`} />
-                )}
-              </button>
-            )}
-
-            {canRegenerate && onRegenerate && (
-              <button
-                type="button"
-                className="feedback-btn"
-                onClick={onRegenerate}
-                disabled={busy}
-                title="Regenerate this answer"
-                aria-label="Regenerate this answer"
-              >
-                <RegenerateIcon size={14} idSuffix={`regen-${msg.id}`} />
-              </button>
-            )}
-
-            {onExportMarkdown && onExportPdf && (
-              <button
-                ref={exportBtnRef}
-                type="button"
-                className="feedback-btn"
-                onClick={() => setExportOpen((v) => !v)}
-                disabled={busy}
-                title="Export conversation"
-                aria-label="Export conversation"
-              >
-                <ExportIcon size={14} idSuffix={`export-${msg.id}`} />
-              </button>
-            )}
-
-            {onFeedback && msg.messageId != null && (
-              <FeedbackButtons
-                current={feedback}
-                onRate={(r) => onFeedback(msg.messageId!, r)}
-              />
-            )}
-          </div>
-        )}
+        <div className="argus-msg-body">
+          <AnswerCard
+            documentNames={docNames}
+            answer={displayText}
+            citations={msg.citations ?? []}
+            traceSteps={msg.trace ?? []}
+            abstained={msg.abstained}
+            streaming={msg.streaming}
+            sources={msg.sources ?? []}
+            footer={footer}
+          />
+        </div>
       </div>
 
       {exportOpen &&
@@ -1045,9 +917,6 @@ export function ChatPanel({
         )}
 
         {messages.map((m, i) => {
-          // Image batch — rendered inline at the position the image
-          // was uploaded. The batch is a ChatMessage variant with a
-          // `batch` field instead of normal content.
           if (m.batch) {
             const isLastBatch = i === messages.length - 1;
             return (
@@ -1172,7 +1041,7 @@ export function ChatPanel({
 }
 
 // ===========================================================================
-// Document picker
+// Document picker — redesigned as vertical file list with state badges
 // ===========================================================================
 export function DocumentList({
   docs,
@@ -1206,13 +1075,92 @@ export function DocumentList({
 
   return (
     <>
+      {/* Section label with count */}
+      <div className="sidebar-section-label sidebar-section-label--split">
+        <span>Documents</span>
+        {docs.length > 0 && <span className="sidebar-count">{docs.length}</span>}
+      </div>
+
+      {/* Empty state */}
+      {docs.length === 0 && (
+        <div className="empty-doclist">
+          No documents yet. Upload a .txt, .md, or .pdf.
+        </div>
+      )}
+
+      {/* Vertical file list */}
+      {docs.length > 0 && (
+        <ul className="loaded-list">
+          {docs.map((d) => {
+            const isReady = d.status === "ready";
+            const inScope = selected.size === 0 || selected.has(d.document_id);
+            return (
+              <li
+                key={d.document_id}
+                className={`doc-row${inScope ? " doc-row-active" : ""}`}
+                onClick={() => isReady && onToggle(d.document_id)}
+                title={d.filename}
+              >
+                <span className={`doc-row-dot doc-row-dot--${d.status}`} />
+                <div className="doc-row-main">
+                  <div className="doc-row-name">{shortenFilename(d.filename, 24)}</div>
+                  <div className="doc-row-meta">
+                    {isReady
+                      ? `${d.chunk_count ?? 0} chunks · ${d.page_count ?? 0} pages`
+                      : d.status}
+                  </div>
+                </div>
+                <button
+                  className="doc-row-del"
+                  title="Remove from index"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(d.document_id);
+                  }}
+                >
+                  ×
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {/* Scope summary */}
+      {readyDocs.length > 1 && (
+        <div className="doc-scope-summary">
+          <span className="doc-scope-pill">
+            <span className="doc-scope-pill-num">{selectedCount}</span>
+            <span className="doc-scope-pill-sep">/</span>
+            <span className="doc-scope-pill-num">{readyDocs.length}</span>
+            <span className="doc-scope-pill-label">in scope</span>
+          </span>
+          <span className="doc-scope-k">K = {effectiveK}</span>
+        </div>
+      )}
+
+      {/* Pending process button */}
+      {pendingCount > 0 && (
+        <button
+          className="btn primary"
+          onClick={onProcess}
+          disabled={processing}
+          style={{ width: "100%", marginTop: "8px" }}
+        >
+          {processing
+            ? "Processing…"
+            : `Process ${pendingCount} document${pendingCount === 1 ? "" : "s"}`}
+        </button>
+      )}
+
+      {/* Upload action — a dashed tile */}
       <button
-        className="btn"
+        className="doc-upload-tile"
         onClick={() => inputRef.current?.click()}
         disabled={processing}
-        style={{ width: "100%", marginBottom: "6px" }}
       >
-         Upload PDF or TXT
+        <span className="doc-upload-tile-plus">+</span>
+        <span>Upload PDF or TXT</span>
       </button>
       <input
         ref={inputRef}
@@ -1227,121 +1175,22 @@ export function DocumentList({
         }}
       />
 
-      {pendingCount > 0 && (
-        <button
-          className="btn primary"
-          onClick={onProcess}
-          disabled={processing}
-          style={{ width: "100%", marginBottom: "8px" }}
-        >
-          {processing
-            ? "Processing…"
-            : `◉  Process Documents (${pendingCount})`}
-        </button>
-      )}
-
-      {docs.length === 0 && (
-        <div className="empty-doclist">
-          No documents yet. Upload a .txt, .md, or .pdf file.
-        </div>
-      )}
-
+      {/* Clear all */}
       {docs.length > 0 && (
-        <>
-          <div
-            className="sidebar-section-label"
-            style={{
-              marginTop: 8,
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            <span>Loaded</span>
-            <span style={{ color: "var(--muted)", fontWeight: 400 }}>
-              {docs.length}
-            </span>
-          </div>
-          <ul className="loaded-list">
-            {docs.map((d) => (
-              <li key={d.document_id} className="loaded-item">
-                <span className="loaded-file-icon">📄</span>
-                <span className="loaded-file-name" title={d.filename}>
-                  {d.filename}
-                </span>
-                <button
-                  className="loaded-del"
-                  title="Remove from index"
-                  onClick={() => onDelete(d.document_id)}
-                >
-                  ×
-                </button>
-              </li>
-            ))}
-          </ul>
-
-          {readyDocs.length > 1 && (
-            <>
-              <div className="sidebar-section-label" style={{ marginTop: 10 }}>
-                Search in
-              </div>
-              <div className="chip-selector">
-                {[...readyDocs]
-                  .sort((a, b) => {
-                    const aActive = selected.has(a.document_id) ? 0 : 1;
-                    const bActive = selected.has(b.document_id) ? 0 : 1;
-                    return aActive - bActive;
-                  })
-                  .map((d) => {
-                    const active = selected.has(d.document_id);
-                    return (
-                      <button
-                        key={d.document_id}
-                        type="button"
-                        className={`doc-chip ${active ? "active" : ""}`}
-                        onClick={() => onToggle(d.document_id)}
-                        title={
-                          active
-                            ? "Click to exclude from retrieval"
-                            : "Click to include in retrieval"
-                        }
-                      >
-                        <span className="doc-chip-label">{d.filename}</span>
-                        {active && <span className="doc-chip-x">×</span>}
-                      </button>
-                    );
-                  })}
-              </div>
-              <div className="effective-k-caption">
-                 Searching <strong>{selectedCount}</strong> of{" "}
-                <strong>{readyDocs.length}</strong> docs · Effective K:{" "}
-                <strong>{effectiveK}</strong>
-              </div>
-            </>
-          )}
-
-          {readyDocs.length === 1 && (
-            <div className="effective-k-caption">
-              1 document indexed: <strong>{readyDocs[0].filename}</strong>
-            </div>
-          )}
-
-          <button
-            className="btn ghost sm"
-            onClick={onClearAll}
-            title="Delete every indexed document"
-            style={{ marginTop: "8px", width: "100%" }}
-          >
-             Clear all indexed documents
-          </button>
-        </>
+        <button
+          className="doc-clear-btn"
+          onClick={onClearAll}
+          title="Delete every indexed document"
+        >
+          Clear all indexed documents
+        </button>
       )}
     </>
   );
 }
 
 // ===========================================================================
-// Session list
+// Session list — redesigned as two-line rows with dot indicator
 // ===========================================================================
 export function SessionList({
   sessions,
@@ -1403,16 +1252,23 @@ export function SessionList({
     <ul className="session-list">
       {visible.map((s) => {
         const isEditing = editingId === s.session_id;
+        const isActive = s.session_id === activeId;
+        const title = s.title && s.title !== "New Chat" ? s.title : "New Chat";
+        const preview =
+          s.message_count != null
+            ? `${s.message_count} message${s.message_count === 1 ? "" : "s"}`
+            : "";
+
         return (
           <li
             key={s.session_id}
-            className={`session-item ${
-              s.session_id === activeId ? "active" : ""
-            }`}
+            className={`session-item${isActive ? " active" : ""}`}
             onClick={() => {
               if (!isEditing) onSelect(s.session_id);
             }}
           >
+            <span className="session-item-dot" aria-hidden="true" />
+
             {isEditing ? (
               <input
                 ref={inputRef}
@@ -1432,9 +1288,12 @@ export function SessionList({
                 onClick={(e) => e.stopPropagation()}
               />
             ) : (
-              <span className="session-title" title={s.title || "New Chat"}>
-                {s.title || "New Chat"}
-              </span>
+              <div className="session-item-main">
+                <div className="session-title" title={title}>
+                  {title}
+                </div>
+                {preview && <div className="session-preview">{preview}</div>}
+              </div>
             )}
 
             {!isEditing && (

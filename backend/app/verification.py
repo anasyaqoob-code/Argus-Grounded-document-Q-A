@@ -25,24 +25,86 @@ from .models import Chunk, VerificationResult
 
 
 # ---------------------------------------------------------------------------
-# Token-based heuristic  (preserved)
+# Token-based heuristic
 # ---------------------------------------------------------------------------
-def _token_set(text: str) -> set[str]:
-    return {t.lower() for t in text.split() if len(t) > 2}
+# English stopwords + connectives we do NOT want to count when measuring
+# grounding. When the metric counted these, explanatory answers scored
+# artificially low (0.38–0.39) because the LLM naturally rewrote the
+# source into readable prose and roughly half the "answer tokens" were
+# stopwords that never match content in the chunk text.
+_GROUNDING_STOPWORDS: frozenset[str] = frozenset({
+    "the", "a", "an", "and", "or", "but", "of", "in", "on", "at", "to",
+    "for", "with", "by", "from", "is", "are", "was", "were", "be", "been",
+    "being", "have", "has", "had", "do", "does", "did", "will", "would",
+    "should", "could", "can", "may", "might", "must", "shall",
+    "this", "that", "these", "those", "it", "its", "as", "if", "then",
+    "than", "so", "such", "not", "no", "yes", "any", "all", "some",
+    "each", "every", "other", "another", "same", "more", "most", "less",
+    "least", "very", "also", "however", "therefore", "because", "which",
+    "who", "whom", "whose", "where", "when", "why", "how", "what",
+    "while", "during", "before", "after", "above", "below", "here",
+    "there", "one", "two", "three", "first", "second", "third", "about",
+    "into", "over", "under", "through", "between", "among", "within",
+    "without", "upon", "across", "along", "around", "them", "they",
+    "their", "you", "your", "yours", "our", "ours", "we", "us", "he",
+    "she", "his", "her", "hers", "him", "both", "either", "neither",
+    "just", "only", "even", "well", "still", "yet", "using", "used",
+    "uses", "use", "make", "makes", "made", "get", "gets", "got",
+    "give", "gives", "gave", "take", "takes", "took", "come", "comes",
+    "came", "go", "goes", "went", "see", "sees", "saw", "seen", "know",
+    "knows", "knew", "known", "think", "thinks", "thought", "want",
+    "wants", "wanted", "need", "needs", "needed", "like", "likes",
+    "liked", "say", "says", "said", "tell", "tells", "told", "way",
+    "ways", "thing", "things", "much", "many", "part", "parts", "kind",
+    "kinds", "sort", "sorts", "type", "types",
+})
+
+
+_TOKEN_SPLIT_RE = re.compile(r"[^a-zA-Z0-9]+")
+
+
+def _content_tokens(text: str) -> set[str]:
+    """Content words only: lowercase, punctuation-stripped, stopword-filtered.
+
+    Excludes:
+      - stopwords and connectives (see ``_GROUNDING_STOPWORDS``)
+      - tokens shorter than 3 characters (numeric noise, "a", "is", …)
+      - punctuation-glued variants — the whole string is split on
+        non-alphanumerics first, so ``"transformer."`` and
+        ``"transformer"`` become the same token.
+
+    What's left is nouns, verbs, adjectives, and named entities — the
+    tokens that actually carry grounding signal.
+    """
+    if not text:
+        return set()
+    raw = _TOKEN_SPLIT_RE.split(text.lower())
+    return {
+        t for t in raw
+        if len(t) >= 3 and t not in _GROUNDING_STOPWORDS
+    }
 
 
 def estimate_grounding(answer: str, chunks: list[Chunk]) -> tuple[float, list[str]]:
-    """Rough grounding score: fraction of answer tokens that appear in
-    retrieved context. Returns ``(coverage, list_of_low_support_phrases)``.
+    """Rough grounding score: fraction of answer CONTENT tokens that appear
+    in the retrieved context.
+
+    The metric deliberately ignores stopwords and punctuation so that a
+    legitimately-grounded paraphrased answer scores high, and a
+    hallucinated answer (whose content words aren't in the source) still
+    scores low. Earlier versions counted every token with length > 2,
+    which diluted the signal ~60% with stopwords and punctuation-glued
+    fragments — that's what caused grounded answers to score 0.38–0.39.
     """
     if not answer.strip() or not chunks:
         return 0.0, ["no evidence"]
 
     context = " ".join(c.text for c in chunks)
-    ctx_tokens = _token_set(context)
-    ans_tokens = _token_set(answer)
+    ctx_tokens = _content_tokens(context)
+    ans_tokens = _content_tokens(answer)
     if not ans_tokens:
-        return 0.0, ["empty answer"]
+        # Answer contains only stopwords — can't be a hallucination.
+        return 1.0, []
 
     overlap = ans_tokens & ctx_tokens
     coverage = len(overlap) / len(ans_tokens)
@@ -52,7 +114,7 @@ def estimate_grounding(answer: str, chunks: list[Chunk]) -> tuple[float, list[st
         sent = sent.strip()
         if len(sent) < 20:
             continue
-        st = _token_set(sent)
+        st = _content_tokens(sent)
         if not st:
             continue
         sent_cov = len(st & ctx_tokens) / len(st)

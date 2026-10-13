@@ -232,12 +232,11 @@ def _set_session_cookie(response: Response, user_id: str) -> None:
         key=auth.COOKIE_NAME,
         value=auth.create_jwt(user_id),
         httponly=True,
-        samesite="none",
+        samesite="none" if is_prod else "lax",
         secure=is_prod,
         max_age=auth.JWT_EXPIRE_DAYS * 24 * 3600,
         path="/",
     )
-
 
 def _user_payload(user_id: str, email: str, is_admin: bool = False) -> dict:
     return {"user_id": user_id, "email": email, "is_admin": bool(is_admin)}
