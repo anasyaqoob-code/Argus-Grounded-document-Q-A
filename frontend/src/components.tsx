@@ -842,6 +842,7 @@ export function ChatPanel({
 }) {
   const [text, setText] = React.useState("");
   const bottomRef = React.useRef<HTMLDivElement>(null);
+  const lastUserRef = React.useRef<HTMLDivElement>(null);
 
   const voice = useVoiceRecorder(
     (transcript) => {
@@ -852,9 +853,41 @@ export function ChatPanel({
     },
   );
 
+  // Find index of last user message so we can attach a ref to it and
+  // anchor the scroll at the top of that bubble.
+  const lastUserIndex = React.useMemo(
+    () =>
+      messages.reduce(
+        (acc, m, i) => (m.role === "user" ? i : acc),
+        -1,
+      ),
+    [messages],
+  );
+
+    // Anchor scroll to the *last user message* — not the bottom of the
+  // list. When a new user message is appended, we scroll that bubble
+  // to the top of the viewport. The streaming answer fills the space
+  // below. During streaming, nothing moves, so the user can read the
+  // answer while still seeing their own question above.
+  //
+  // The scroll is deferred by one animation frame so the ref has a
+  // layout box before we call scrollIntoView. Without this, the call
+  // runs before the browser has painted the new bubble and the scroll
+  // is silently dropped.
+    const lastUserMessageIdRef = React.useRef<string | undefined>(undefined);
   React.useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    const lastUser = messages[lastUserIndex];
+    if (!lastUser) return;
+    if (lastUser.id !== lastUserMessageIdRef.current) {
+      lastUserMessageIdRef.current = lastUser.id;
+      requestAnimationFrame(() => {
+        lastUserRef.current?.scrollIntoView({
+          behavior: "auto",
+          block: "start",
+        });
+      });
+    }
+  }, [messages, lastUserIndex]);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -943,9 +976,10 @@ export function ChatPanel({
 
           const isLast = i === messages.length - 1;
           const canRegen = isLast && m.role === "assistant" && !m.streaming;
-          return (
+          const isLastUser = i === lastUserIndex;
+
+          const bubble = (
             <MessageBubble
-              key={m.id}
               msg={m}
               onFeedback={onFeedback}
               feedback={
@@ -960,6 +994,16 @@ export function ChatPanel({
               canRegenerate={canRegen}
               busy={busy}
             />
+          );
+
+          // Wrap the last user bubble in a div so we can attach a ref
+          // and scroll it to the top of the viewport.
+          return isLastUser ? (
+            <div key={m.id} ref={lastUserRef}>
+              {bubble}
+            </div>
+          ) : (
+            <React.Fragment key={m.id}>{bubble}</React.Fragment>
           );
         })}
 
@@ -1075,8 +1119,6 @@ export function DocumentList({
 
   return (
     <>
-      
-
       {/* Empty state */}
       {docs.length === 0 && (
         <div className="empty-doclist">
@@ -1099,7 +1141,9 @@ export function DocumentList({
               >
                 <span className={`doc-row-dot doc-row-dot--${d.status}`} />
                 <div className="doc-row-main">
-                  <div className="doc-row-name">{shortenFilename(d.filename, 24)}</div>
+                  <div className="doc-row-name">
+                    {shortenFilename(d.filename, 24)}
+                  </div>
                   <div className="doc-row-meta">
                     {isReady
                       ? `${d.chunk_count ?? 0} chunks · ${d.page_count ?? 0} pages`

@@ -32,6 +32,11 @@
   --argus-radius-pill:    999px;
   --argus-radius-chip:    10px;
   --argus-radius-control: 12px;
+
+  /* Aliases — used by mobile shell rules below. */
+  --argus-bg-0:           var(--argus-bg-base);
+  --argus-bg-1:           var(--argus-panel-strong);
+  --argus-bg-1-solid:     #0f0b1c;
 }
 
 /* ------------------------------------------------------------------ *
@@ -472,7 +477,8 @@
 }
 
 /* ------------------------------------------------------------------ *
- * Workspace composer
+ * Workspace composer (legacy .argus-composer — retained for parity;
+ * the real DOM uses `.composer` + `.composer-shell` from index.css)
  * ------------------------------------------------------------------ */
 .argus-composer {
   background: var(--argus-panel-strong);
@@ -522,3 +528,264 @@
 .argus-btn-primary:hover  { transform: translateY(-1px); box-shadow: 0 10px 36px rgba(139, 92, 246, 0.45); }
 .argus-btn-primary:active { transform: translateY(0); }
 .argus-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+
+/* ============================================================
+   Mobile shell — off-canvas drawer, top bar, safe-area aware
+   ------------------------------------------------------------
+   Z-index ladder (do not reorder):
+     20 = composer (bottom, above message flow)
+     30 = mobile top bar (sticky, above composer)
+     35 = drawer backdrop (dims chat, below drawer)
+     40 = drawer sidebar (highest interactive layer)
+
+   The drawer is gated by .app.drawer-open — set by MainApp.tsx
+   whenever the hamburger opens. Desktop is never affected.
+   ============================================================ */
+
+/* Base: desktop keeps everything as-is. The shell uses 100dvh
+   so mobile URL bars don't push the composer off-screen. */
+.app {
+  min-height: 100dvh;
+}
+
+/* Mobile-only chrome is hidden on desktop. */
+.argus-mobile-bar,
+.argus-drawer-close,
+.argus-drawer-backdrop {
+  display: none;
+}
+
+/* Shared icon button — used by hamburger + drawer close. */
+.argus-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  color: inherit;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+.argus-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+.argus-icon-btn:focus-visible {
+  outline: 2px solid rgba(139, 92, 246, 0.7);
+  outline-offset: 2px;
+}
+
+/* ============================================================
+   Below 768px — sidebar becomes an off-canvas drawer.
+   ============================================================ */
+@media (max-width: 768px) {
+  /* The .main grid collapses to a single column; top bar sits above. */
+  .main {
+    display: block !important;
+    min-height: 100dvh;
+  }
+
+  /* ---- Mobile top bar ---- */
+  .argus-mobile-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    padding: 10px 12px;
+    padding-top: calc(10px + env(safe-area-inset-top));
+    background: var(--argus-bg-1-solid);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .argus-mobile-title {
+    flex: 1;
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 0.02em;
+    color: var(--argus-text-primary);
+  }
+
+  .argus-scope-pill {
+    font-size: 12px;
+    font-weight: 500;
+    padding: 4px 10px;
+    border-radius: var(--argus-radius-pill);
+    background: rgba(139, 92, 246, 0.14);
+    color: #c4b5fd;
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    white-space: nowrap;
+  }
+
+  /* ---- Chat header — hide on mobile ----
+     The mobile top bar already shows "Argus". The ChatHeader's
+     marketing paragraph belongs to the landing page, not the
+     workspace. Hiding it reclaims ~200px of vertical space so
+     the first message starts near the top of the viewport. */
+  .chat > .chat-header {
+    display: none;
+  }
+
+  /* ---- Sidebar → off-canvas drawer ---- */
+  .sidebar {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(86vw, 340px) !important;
+    max-width: 340px;
+    max-height: none !important;      /* defensive: no other rule caps height */
+    height: 100dvh;
+    transform: translateX(-100%);
+    transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+    z-index: 40;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.45);
+    /* Opaque so the chat behind never bleeds through the drawer. */
+    background: var(--argus-bg-1-solid);
+  }
+
+  /* Drawer open — single source of truth, matches MainApp. */
+  .app.drawer-open .sidebar {
+    transform: translateX(0);
+  }
+
+  /* Hide the desktop sidebar-collapse toggle on mobile.
+     Real class is `.rag-brand-toggle` (BrandHeader in components.tsx). */
+  .rag-brand-toggle,
+  .sidebar-collapse-toggle,
+  .sidebar .collapse-toggle {
+    display: none !important;
+  }
+
+  /* Close button inside the drawer. */
+  .argus-drawer-close {
+    display: inline-flex;
+    position: absolute;
+    top: calc(10px + env(safe-area-inset-top));
+    right: 10px;
+    z-index: 1;
+  }
+
+  /* Backdrop — gated on drawer-open so it never paints otherwise. */
+  .app.drawer-open .argus-drawer-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+    z-index: 35;
+    animation: argus-fade-in 160ms ease-out;
+  }
+
+    /* ---- Chat area ---- */
+  /* Reserve room above the pinned composer so the last
+     message never gets hidden behind it. */
+    .messages {
+    padding-left: 12px;
+    padding-right: 12px;
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
+    /* Push content below the sticky bar. The 12px gap prevents the
+       first message from sitting flush against the bar's bottom edge
+       (which reads visually as "clipped"). */
+    padding-top: calc(61px + env(safe-area-inset-top) + 12px);
+    scroll-padding-top: calc(61px + env(safe-area-inset-top) + 12px);
+  }
+
+  /* ---- Assistant message grid ---- */
+  /* Collapse to a single track: the avatar is hidden below, and
+     leaving `26px 1fr` + 10px gap in place squeezes the answer to
+     ~12px width (words break mid-syllable and stack vertically). */
+  .argus-msg-row {
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  /* User bubble right padding matches the new gutter. */
+  .argus-user-row {
+    padding-right: 12px !important;
+  }
+
+  /* Hide avatars to reclaim horizontal space. */
+  .argus-msg-avatar {
+    display: none !important;
+  }
+
+  /* Citation chips — allow wrap and shrink. */
+  .argus-cite {
+    font-size: 11px;
+    padding: 1px 6px;
+  }
+
+  /* Bigger tap targets for the sidebar list items. */
+  .doc-row,
+  .session-item {
+    min-height: 44px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+
+  /* ---- Empty state — tighten spacing on mobile ---- */
+  /* The default 16vh top margin + large 3D logo pushes the
+     composer down on small screens. Tighten here so the empty
+     state fits without scrolling. */
+  .empty {
+    margin-top: 8vh;
+  }
+  .empty-mark {
+    margin-bottom: 1rem;
+  }
+  .empty-title {
+    font-size: 1rem;
+    padding: 0 16px;
+  }
+  .empty-sub {
+    font-size: 0.85rem;
+    padding: 0 16px;
+  }
+
+  /* ---- Composer (real DOM class) ---- */
+  /* 16px input prevents iOS auto-zoom-on-focus. */
+  .composer input,
+  .composer textarea,
+  .composer-shell input,
+  .composer-shell textarea {
+    font-size: 16px !important;
+    min-height: 44px;
+  }
+
+  /* Pin the composer above the home indicator. */
+  .composer {
+    position: sticky;
+    bottom: 0;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    background: var(--argus-bg-1-solid);
+    z-index: 20;
+  }
+}
+
+/* Respect reduced-motion preferences. */
+@media (prefers-reduced-motion: reduce) {
+  .sidebar {
+    transition: none !important;
+  }
+  .argus-drawer-backdrop {
+    animation: none !important;
+  }
+}
+
+@keyframes argus-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
