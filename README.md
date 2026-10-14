@@ -811,4 +811,4 @@ If `frontend/index.html`'s viewport meta tag is ever changed to remove `viewport
 
 ## License
 
-Private project. Not for redistribution.
+Copyright © 2026 Anas Yaqoob Baig. All rights reserved.
